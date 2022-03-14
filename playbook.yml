@@ -1,0 +1,84 @@
+### playbook.yml
+---
+  - name: Install Docker and Docker Compose
+    hosts: all
+    become: true
+    gather_facts: False
+    remote_user: ec2-user
+    tasks:
+      - name: Update yum package manager
+        command: sudo yum update -y
+      - name: Install Docker
+        command: sudo yum install docker -y
+      - name: Enable docker
+        command: sudo systemctl enable docker
+      - name: Start docker
+        command: sudo systemctl start docker
+      - name: Install Docker Compose
+        shell: sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+      - name: Adjust permissions for docker compose
+        command: sudo chmod +x /usr/local/bin/docker-compose
+  - name: Init Swarm Manager
+    hosts: managers
+    become: true
+    gather_facts: False
+    remote_user: ec2-user
+    tasks:
+      - name: Swarm Init
+        command: sudo usermod -aG docker {{remote_user}}
+        command: docker swarm init --advertise-addr {{ inventory_hostname }}
+      - name: Get Worker Token
+        command: docker swarm join-token worker -q
+        register: worker_token
+      - name: Show Worker Token
+        debug: var=worker_token.stdout
+      - name: Manager Token
+        command: docker swarm join-token manager -q
+        register: manager_token
+      - name: Show Manager Token
+        debug: var=manager_token.stdout
+  - name: Join Swarm Cluster
+    hosts: workers
+    become: true
+    remote_user: ec2-user
+    gather_facts: False
+    vars:
+      token: "{{ hostvars[groups['managers'][0]]['worker_token']['stdout'] }}"
+      manager: "{{ hostvars[groups['managers'][0]]['inventory_hostname'] }}"
+    tasks:
+      - name: Join Swarm Cluster as a Worker
+        command: sudo usermod -aG docker {{remote_user}}
+        command: sudo docker swarm join --token {{ token }} {{ manager }}:2377
+        register: worker
+      - name: Show Results
+        debug: var=worker.stdout
+      - name: Show Errors
+        debug: var=worker.stderr
+  - name: Copy Docker Compose and Nginx config files
+    hosts: managers
+    become: true
+    remote_user: ec2-user
+    tasks:
+      # - name: Create proper directories
+      #   command: mkdir nginx
+      #   command: cd nginx
+      #   command: mkdir config
+      - name: Copy docker-compose.yaml
+        copy:
+          src: ./assets/docker-compose.yaml
+          dest: /
+      - name: Copy nginx.conf
+        copy:
+          src: ./assets/nginx.conf
+          dest: /nginx/config/
+  - name: Deploy stack and scale to three containers    
+    hosts: managers
+    become: true
+    remote_user: ec2-user
+    tasks:
+      - name: Deploy stack
+        command: sudo docker stack deploy --compose-file /docker-compose.yaml catnipstack
+      - name: Scale up the app to 3 containers
+        command: sudo docker service scale catnipstack_catnip=3
+      - name: Scale up nginx
+        command: sudo docker service scale catnipstack_nginx=3

@@ -1,0 +1,5 @@
+[managers]
+54.237.174.248 ansible_user=ec2-user ansible_private_key_file=~/ssh-keys/ec2-docker.pem
+[workers]
+3.85.25.215 ansible_user=ec2-user ansible_private_key_file=~/ssh-keys/ec2-docker.pem
+3.95.184.76 ansible_user=ec2-user ansible_private_key_file=~/ssh-keys/ec2-docker.pem
